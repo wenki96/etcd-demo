@@ -16,7 +16,33 @@ import (
 //  return h.Sum32()
 // }
 
+var (
+	key           = "/distributed/etcd/"
+	prefixKey     = "/distributed/"
+	keyLock       = "/distributed-lock/etcd/"
+	prefixKeyLock = "/distributed-lock/"
+	value         = "helloworld"
+)
+
+var lReset = &concurrency.Mutex{}
+
 func main() {
+
+	// read key /distributed/etcd
+	for i := 1; i < 10; i++ {
+		go reader(key, keyLock, i)
+	}
+
+	// write key /distributed/etcd
+	go writer(key, keyLock, value)
+
+	// write prefix key /distributed/
+	go reseter(key, prefixKeyLock, prefixKey)
+
+	select {}
+}
+
+func reader(key, keyLock string, readerNum int) {
 	// Create a etcd client
 	cli, err := clientv3.New(clientv3.Config{Endpoints: []string{"localhost:2379"}})
 	if err != nil {
@@ -24,36 +50,6 @@ func main() {
 	}
 	defer cli.Close()
 
-	key := "/distributed/etcd/"
-	prefixKey := "/distributed/"
-	keyLock := "/distributed-lock/etcd/"
-	prefixKeyLock := "/distributed-lock/"
-	value := "helloworld"
-
-	// create a sessions to aqcuire a lock for reset
-	sReset, err := concurrency.NewSession(cli, concurrency.WithTTL(10))
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer sReset.Close()
-	ctxReset := context.Background()
-	lReset := concurrency.NewMutex(sReset, prefixKeyLock)
-
-	// read key /distributed/etcd
-	for i := 1; i < 10; i++ {
-		go reader(cli, key, keyLock, i, lReset)
-	}
-
-	// write key /distributed/etcd
-	go writer(cli, key, keyLock, value, lReset)
-
-	// write prefix key /distributed/
-	go reseter(cli, key, prefixKeyLock, prefixKey, ctxReset, lReset)
-
-	select {}
-}
-
-func reader(cli *clientv3.Client, key, keyLock string, readerNum int, lReset *concurrency.Mutex) {
 	for {
 		// concurrency read
 
@@ -91,7 +87,7 @@ func reader(cli *clientv3.Client, key, keyLock string, readerNum int, lReset *co
 		fmt.Printf("[Reader] Reader  %d\n", readerNum)
 		fmt.Println("acquired lock for read ", keyLock)
 
-		time.Sleep(1 * time.Second)
+		// time.Sleep(1 * time.Second)
 
 		var getResp *clientv3.GetResponse
 		// 实例化一个用于操作ETCD的KV
@@ -116,7 +112,14 @@ func reader(cli *clientv3.Client, key, keyLock string, readerNum int, lReset *co
 	}
 }
 
-func writer(cli *clientv3.Client, key, keyLock, value string, lReset *concurrency.Mutex) {
+func writer(key, keyLock, value string) {
+	// Create a etcd client
+	cli, err := clientv3.New(clientv3.Config{Endpoints: []string{"localhost:2379"}})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer cli.Close()
+
 	i := 1
 	for {
 		// concurrency write
@@ -170,7 +173,7 @@ func writer(cli *clientv3.Client, key, keyLock, value string, lReset *concurrenc
 		}
 		fmt.Println("curValue: ", fmt.Sprintf("%s%d", value, i))
 
-		time.Sleep(2 * time.Second)
+		// time.Sleep(2 * time.Second)
 
 		if err := l.Unlock(ctx); err != nil {
 			log.Fatal(err)
@@ -183,12 +186,29 @@ func writer(cli *clientv3.Client, key, keyLock, value string, lReset *concurrenc
 	}
 }
 
-func reseter(cli *clientv3.Client, key, prefixKeyLock, prefixKey string, ctx context.Context, l *concurrency.Mutex) {
+func reseter(key, prefixKeyLock, prefixKey string) {
+	// Create a etcd client
+	cli, err := clientv3.New(clientv3.Config{Endpoints: []string{"localhost:2379"}})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer cli.Close()
+
+	// create a sessions to aqcuire a lock for reset
+	sReset, err := concurrency.NewSession(cli, concurrency.WithTTL(10))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer sReset.Close()
+	ctxReset := context.Background()
+	lReset = concurrency.NewMutex(sReset, prefixKeyLock)
+
 	// concurrency reset
 	for {
-		time.Sleep(15 * time.Second)
+		time.Sleep(1 * time.Second)
 		// acquire lock (or wait to have it)
-		if err := l.Lock(ctx); err != nil {
+
+		if err := lReset.Lock(ctxReset); err != nil {
 			log.Fatal(err)
 		}
 
@@ -205,9 +225,9 @@ func reseter(cli *clientv3.Client, key, prefixKeyLock, prefixKey string, ctx con
 				fmt.Printf("del key: %s, value: %s\n", preKv.Key, preKv.Value)
 			}
 		}
-		time.Sleep(20 * time.Second)
+		// time.Sleep(10 * time.Second)
 
-		if err := l.Unlock(ctx); err != nil {
+		if err := lReset.Unlock(ctxReset); err != nil {
 			log.Fatal(err)
 		}
 
