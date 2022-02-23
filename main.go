@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
-	"go.etcd.io/etcd/clientv3"
-	"go.etcd.io/etcd/clientv3/concurrency"
+	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.etcd.io/etcd/client/v3/concurrency"
 )
 
 // func hash(s string) uint32 {
@@ -24,22 +27,42 @@ var (
 	value         = "helloworld"
 )
 
-var lReset = &concurrency.Mutex{}
+// var lReset = &concurrency.Mutex{}
 
 func main() {
 
-	// read key /distributed/etcd
-	for i := 1; i < 10; i++ {
-		go reader(key, keyLock, i)
-	}
+	// // read key /distributed/etcd
+	// for i := 1; i < 10; i++ {
+	// 	go reader(key, keyLock, i)
+	// }
 
-	// write key /distributed/etcd
-	go writer(key, keyLock, value)
+	// // write key /distributed/etcd
+	// go writer(key, keyLock, value)
 
-	// write prefix key /distributed/
+	// // write prefix key /distributed/
 	go reseter(key, prefixKeyLock, prefixKey)
 
 	select {}
+}
+
+func resetKeyUsed(cli *clientv3.Client) bool {
+	var getResp *clientv3.GetResponse
+	// 实例化一个用于操作ETCD的KV
+	kv := clientv3.NewKV(cli)
+
+	getResp, err := kv.Get(context.TODO(), prefixKeyLock)
+	if err != nil {
+		fmt.Println(err)
+		return true
+	}
+
+	// 输出本次的Revision
+	if getResp.Kvs != nil {
+		// fmt.Println(getResp.Kvs[0].Value)
+		return string(getResp.Kvs[0].Value) == "1"
+	}
+
+	return false
 }
 
 func reader(key, keyLock string, readerNum int) {
@@ -54,7 +77,7 @@ func reader(key, keyLock string, readerNum int) {
 		// concurrency read
 
 		// whether reseter hold the lock
-		if len(lReset.IsOwner().Key) > 1 {
+		if resetKeyUsed(cli) {
 			// fmt.Printf("Reseter holds the lock [Reader]: Reader  %d\n", readerNum)
 			continue
 		}
@@ -76,7 +99,7 @@ func reader(key, keyLock string, readerNum int) {
 		}
 
 		// unlock
-		if len(lReset.IsOwner().Key) > 1 {
+		if resetKeyUsed(cli) {
 			// fmt.Printf("Reseter holds the lock [Reader]: Reader  %d\n", readerNum)
 			if err := l.Unlock(ctx); err != nil {
 				log.Fatal(err)
@@ -125,7 +148,7 @@ func writer(key, keyLock, value string) {
 		// concurrency write
 
 		// whether reseter hold the lock
-		if len(lReset.IsOwner().Key) > 1 {
+		if resetKeyUsed(cli) {
 			// fmt.Printf("Reseter holds the lock [Writer]\n")
 			continue
 		}
@@ -147,7 +170,7 @@ func writer(key, keyLock, value string) {
 		}
 
 		// unlock
-		if len(lReset.IsOwner().Key) > 1 {
+		if resetKeyUsed(cli) {
 			// fmt.Printf("Reseter holds the lock [Reader]: Reader  %d\n", readerNum)
 			if err := l.Unlock(ctx); err != nil {
 				log.Fatal(err)
@@ -186,6 +209,21 @@ func writer(key, keyLock, value string) {
 	}
 }
 
+func setResetKey(cli *clientv3.Client, key string) {
+	kv := clientv3.NewKV(cli)
+	if _, err := kv.Put(context.TODO(), prefixKeyLock, key, clientv3.WithPrevKV()); err != nil {
+		fmt.Println(err)
+		return
+	}
+}
+
+func ExitFunc() {
+	fmt.Println("开始退出...")
+	fmt.Println("执行清理...")
+	fmt.Println("结束退出...")
+	os.Exit(0)
+}
+
 func reseter(key, prefixKeyLock, prefixKey string) {
 	// Create a etcd client
 	cli, err := clientv3.New(clientv3.Config{Endpoints: []string{"localhost:2379"}})
@@ -194,23 +232,32 @@ func reseter(key, prefixKeyLock, prefixKey string) {
 	}
 	defer cli.Close()
 
-	// create a sessions to aqcuire a lock for reset
-	sReset, err := concurrency.NewSession(cli, concurrency.WithTTL(10))
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer sReset.Close()
-	ctxReset := context.Background()
-	lReset = concurrency.NewMutex(sReset, prefixKeyLock)
+	c := make(chan os.Signal)
+	// 监听信号
+	signal.Notify(c, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGUSR1, syscall.SIGUSR2)
+	go func() {
+		for s := range c {
+			switch s {
+			case syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM:
+				fmt.Println("退出:", s)
+				setResetKey(cli, "0")
+				ExitFunc()
+			case syscall.SIGUSR1:
+				fmt.Println("usr1", s)
+			case syscall.SIGUSR2:
+				fmt.Println("usr2", s)
+			default:
+				fmt.Println("其他信号:", s)
+			}
+		}
+	}()
 
 	// concurrency reset
 	for {
-		time.Sleep(1 * time.Second)
+		time.Sleep(5 * time.Second)
 		// acquire lock (or wait to have it)
 
-		if err := lReset.Lock(ctxReset); err != nil {
-			log.Fatal(err)
-		}
+		setResetKey(cli, "1")
 
 		fmt.Println("[Reseter]")
 		fmt.Println("acquired lock for reset ", prefixKeyLock)
@@ -225,11 +272,9 @@ func reseter(key, prefixKeyLock, prefixKey string) {
 				fmt.Printf("del key: %s, value: %s\n", preKv.Key, preKv.Value)
 			}
 		}
-		// time.Sleep(10 * time.Second)
+		time.Sleep(10 * time.Second)
 
-		if err := lReset.Unlock(ctxReset); err != nil {
-			log.Fatal(err)
-		}
+		setResetKey(cli, "0")
 
 		fmt.Println("released lock for reset ", prefixKeyLock)
 		fmt.Println()
