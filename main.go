@@ -42,6 +42,8 @@ func main() {
 	// write prefix key /distributed/
 	go reseter(key, prefixKeyLock, prefixKey)
 
+	gracefulShutdown()
+
 	select {}
 }
 
@@ -217,10 +219,6 @@ func setResetKey(cli *clientv3.Client, key string) {
 	}
 }
 
-func ExitFunc() {
-	os.Exit(0)
-}
-
 func reseter(key, prefixKeyLock, prefixKey string) {
 	// Create a etcd client
 	cli, err := clientv3.New(clientv3.Config{Endpoints: []string{"localhost:2379"}})
@@ -229,25 +227,10 @@ func reseter(key, prefixKeyLock, prefixKey string) {
 	}
 	defer cli.Close()
 
-	c := make(chan os.Signal)
-	// 监听信号
-	signal.Notify(c, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-	go func() {
-		for s := range c {
-			switch s {
-			case syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM:
-				fmt.Println("退出:", s)
-				setResetKey(cli, "0")
-				ExitFunc()
-			default:
-				fmt.Println("其他信号:", s)
-			}
-		}
-	}()
-
 	// concurrency reset
 	for {
-		time.Sleep(5 * time.Second)
+
+		time.Sleep(2 * time.Second)
 		// acquire lock (or wait to have it)
 
 		setResetKey(cli, "1")
@@ -273,4 +256,28 @@ func reseter(key, prefixKeyLock, prefixKey string) {
 		fmt.Println()
 
 	}
+}
+
+func gracefulShutdown() {
+	c := make(chan os.Signal)
+	// 监听信号
+	signal.Notify(c, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	go func() {
+		cli, err := clientv3.New(clientv3.Config{Endpoints: []string{"localhost:2379"}})
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer cli.Close()
+
+		for s := range c {
+			switch s {
+			case syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM:
+				fmt.Println("退出:", s)
+				setResetKey(cli, "0")
+				os.Exit(0)
+			default:
+				fmt.Println("其他信号:", s)
+			}
+		}
+	}()
 }
