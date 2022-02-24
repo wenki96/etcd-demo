@@ -31,15 +31,15 @@ var (
 
 func main() {
 
-	// // read key /distributed/etcd
-	// for i := 1; i < 10; i++ {
-	// 	go reader(key, keyLock, i)
-	// }
+	// read key /distributed/etcd
+	for i := 1; i < 10; i++ {
+		go reader(key, keyLock, i)
+	}
 
-	// // write key /distributed/etcd
-	// go writer(key, keyLock, value)
+	// write key /distributed/etcd
+	go writer(key, keyLock, value)
 
-	// // write prefix key /distributed/
+	// write prefix key /distributed/
 	go reseter(key, prefixKeyLock, prefixKey)
 
 	select {}
@@ -218,9 +218,6 @@ func setResetKey(cli *clientv3.Client, key string) {
 }
 
 func ExitFunc() {
-	fmt.Println("开始退出...")
-	fmt.Println("执行清理...")
-	fmt.Println("结束退出...")
 	os.Exit(0)
 }
 
@@ -234,7 +231,7 @@ func reseter(key, prefixKeyLock, prefixKey string) {
 
 	c := make(chan os.Signal)
 	// 监听信号
-	signal.Notify(c, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGUSR1, syscall.SIGUSR2)
+	signal.Notify(c, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	go func() {
 		for s := range c {
 			switch s {
@@ -242,10 +239,6 @@ func reseter(key, prefixKeyLock, prefixKey string) {
 				fmt.Println("退出:", s)
 				setResetKey(cli, "0")
 				ExitFunc()
-			case syscall.SIGUSR1:
-				fmt.Println("usr1", s)
-			case syscall.SIGUSR2:
-				fmt.Println("usr2", s)
 			default:
 				fmt.Println("其他信号:", s)
 			}
