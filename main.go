@@ -20,10 +20,10 @@ import (
 // }
 
 var (
-	key           = "/distributed/etcd/"
-	prefixKey     = "/distributed/"
-	keyLock       = "/distributed-lock/etcd/"
-	prefixKeyLock = "/distributed-lock/"
+	key           = "/gloabalmap/etcd/"
+	prefixKey     = "/gloabalmap/"
+	keyLock       = "/lock/etcd/"
+	prefixKeyLock = "/lock/"
 	value         = "helloworld"
 )
 
@@ -258,6 +258,7 @@ func reseter(key, prefixKeyLock, prefixKey string) {
 	}
 }
 
+// 优雅退出
 func gracefulShutdown() {
 	c := make(chan os.Signal)
 	// 监听信号
@@ -271,7 +272,7 @@ func gracefulShutdown() {
 
 		for s := range c {
 			switch s {
-			case syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM:
+			case syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT:
 				fmt.Println("退出:", s)
 				setResetKey(cli, "0")
 				os.Exit(0)
