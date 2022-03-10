@@ -40,7 +40,7 @@ func main() {
 	go writer(key, keyLock, value)
 
 	// write prefix key /distributed/
-	go reseter(key, prefixKeyLock, prefixKey)
+	// go reseter(key, prefixKeyLock, prefixKey)
 
 	gracefulShutdown()
 
@@ -68,15 +68,15 @@ func resetKeyUsed(cli *clientv3.Client) bool {
 }
 
 func reader(key, keyLock string, readerNum int) {
-	// Create a etcd client
-	cli, err := clientv3.New(clientv3.Config{Endpoints: []string{"localhost:2379"}})
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer cli.Close()
 
 	for {
 		// concurrency read
+		// Create a etcd client
+		cli, err := clientv3.New(clientv3.Config{Endpoints: []string{"localhost:2379"}})
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer cli.Close()
 
 		// whether reseter hold the lock
 		if resetKeyUsed(cli) {
@@ -91,23 +91,24 @@ func reader(key, keyLock string, readerNum int) {
 		}
 		defer s.Close()
 
-		ctx := context.Background()
+		// ctx := context.Background()
 
-		l := concurrency.NewMutex(s, keyLock)
+		// l := concurrency.NewMutex(s, keyLock)
 
-		// acquire lock (or wait to have it)
-		if err := l.Lock(ctx); err != nil {
-			log.Fatal(err)
-		}
+		// // acquire lock (or wait to have it)
+		// if err := l.TryLock(ctx); err != nil {
+		// 	// log.Fatal(err)
+		// 	continue
+		// }
 
-		// unlock
-		if resetKeyUsed(cli) {
-			// fmt.Printf("Reseter holds the lock [Reader]: Reader  %d\n", readerNum)
-			if err := l.Unlock(ctx); err != nil {
-				log.Fatal(err)
-			}
-			continue
-		}
+		// // unlock
+		// if resetKeyUsed(cli) {
+		// 	// fmt.Printf("Reseter holds the lock [Reader]: Reader  %d\n", readerNum)
+		// 	if err := l.Unlock(ctx); err != nil {
+		// 		log.Fatal(err)
+		// 	}
+		// 	continue
+		// }
 
 		fmt.Printf("[Reader] Reader  %d\n", readerNum)
 		fmt.Println("acquired lock for read ", keyLock)
@@ -128,9 +129,28 @@ func reader(key, keyLock string, readerNum int) {
 			fmt.Printf("Key is %s Value is %s \n", getResp.Kvs[0].Key, getResp.Kvs[0].Value)
 		}
 
-		if err := l.Unlock(ctx); err != nil {
-			log.Fatal(err)
-		}
+		// cli, err = clientv3.New(clientv3.Config{Endpoints: []string{"localhost:2379"}})
+		// if err != nil {
+		// 	log.Fatal(err)
+		// }
+		// defer cli.Close()
+
+		// // create a sessions to aqcuire a lock
+		// s, err = concurrency.NewSession(cli, concurrency.WithTTL(10))
+		// if err != nil {
+		// 	fmt.Println(1111)
+		// 	log.Fatal(err)
+		// }
+		// defer s.Close()
+
+		// ctx = context.Background()
+
+		// l = concurrency.NewMutex(s, keyLock)
+
+		// if err := l.Unlock(ctx); err != nil {
+		// 	fmt.Println(11112)
+		// 	log.Fatal(err)
+		// }
 
 		fmt.Println("released lock for read ", keyLock)
 		fmt.Println()
@@ -138,16 +158,16 @@ func reader(key, keyLock string, readerNum int) {
 }
 
 func writer(key, keyLock, value string) {
-	// Create a etcd client
-	cli, err := clientv3.New(clientv3.Config{Endpoints: []string{"localhost:2379"}})
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer cli.Close()
 
 	i := 1
 	for {
 		// concurrency write
+		// Create a etcd client
+		cli, err := clientv3.New(clientv3.Config{Endpoints: []string{"localhost:2379"}})
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer cli.Close()
 
 		// whether reseter hold the lock
 		if resetKeyUsed(cli) {
@@ -162,23 +182,24 @@ func writer(key, keyLock, value string) {
 		}
 		defer s.Close()
 
-		ctx := context.Background()
+		// ctx := context.Background()
 
-		l := concurrency.NewMutex(s, keyLock)
+		// l := concurrency.NewMutex(s, keyLock)
 
-		// acquire lock (or wait to have it)
-		if err := l.Lock(ctx); err != nil {
-			log.Fatal(err)
-		}
+		// // acquire lock (or wait to have it)
+		// if err := l.TryLock(ctx); err != nil {
+		// 	// log.Fatal(err)
+		// 	continue
+		// }
 
-		// unlock
-		if resetKeyUsed(cli) {
-			// fmt.Printf("Reseter holds the lock [Reader]: Reader  %d\n", readerNum)
-			if err := l.Unlock(ctx); err != nil {
-				log.Fatal(err)
-			}
-			continue
-		}
+		// // unlock
+		// if resetKeyUsed(cli) {
+		// 	// fmt.Printf("Reseter holds the lock [Reader]: Reader  %d\n", readerNum)
+		// 	if err := l.Unlock(ctx); err != nil {
+		// 		log.Fatal(err)
+		// 	}
+		// 	continue
+		// }
 
 		fmt.Printf("[Writer]: \n")
 		fmt.Println("acquired lock for write ", keyLock)
@@ -200,9 +221,26 @@ func writer(key, keyLock, value string) {
 
 		// time.Sleep(2 * time.Second)
 
-		if err := l.Unlock(ctx); err != nil {
+		cli, err = clientv3.New(clientv3.Config{Endpoints: []string{"localhost:2379"}})
+		if err != nil {
 			log.Fatal(err)
 		}
+		defer cli.Close()
+
+		// create a sessions to aqcuire a lock
+		s, err = concurrency.NewSession(cli, concurrency.WithTTL(10))
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer s.Close()
+
+		// ctx = context.Background()
+
+		// l = concurrency.NewMutex(s, keyLock)
+
+		// if err := l.Unlock(ctx); err != nil {
+		// 	log.Fatal(err)
+		// }
 
 		fmt.Println("released lock for write ", keyLock)
 		fmt.Println()
